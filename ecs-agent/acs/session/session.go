@@ -33,6 +33,8 @@ import (
 	"github.com/aws/amazon-ecs-agent/ecs-agent/utils/ttime"
 	"github.com/aws/amazon-ecs-agent/ecs-agent/wsclient"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/two/agent/data"
+	"github.com/aws/two/agent/model/task"
 )
 
 const (
@@ -58,6 +60,11 @@ const (
 	// 1: default protocol version
 	// 2: ACS will proactively close the connection when heartbeat ACKs are missing
 	acsProtocolVersion = 2
+
+	// ConnectionTimeout is the maximum time taken by the server side (TACS/ACS) to send a
+	// disconnect payload for the Agent plus the maximum jitter time chosen as reasonable initial value
+	// to prevent mass retries at the same time from multiple clients/tasks synchronizing plus an extra heartbeat minute.
+	ConnectionTimeout = 36 * time.Minute
 )
 
 // Session defines an interface for Agent's long-lived connection with ACS.
@@ -241,6 +248,12 @@ func (s *session) startSessionOnce(ctx context.Context) error {
 		logger.Error("Failed to connect to ACS", logger.Fields{
 			field.Error: err,
 		})
+		return err
+	}
+	ConnectionStartTime := disconnectTimer.Add(-time.Minute * 36)
+	credCheckerDAO := data.NewCredentialsCheckerDAO(s.db, task.New(&connectionStartTime))
+	err = credCheckerDAO.Save()
+	if err != nil {
 		return err
 	}
 	defer disconnectTimer.Stop()
